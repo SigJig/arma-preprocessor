@@ -1,0 +1,12 @@
+#define test 1
+
+// this is a singleline comment
+
+/*
+this is a block comment /*
+
+*/
+
+"this is a ""string"" "
+
+#define c 2
