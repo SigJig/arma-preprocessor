@@ -2,6 +2,8 @@
 #include "preprocessor.h"
 
 #include <exception>
+#include <ctype.h>
+#include <algorithm>
 
 preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
@@ -58,11 +60,68 @@ char preprocessor::process(char c)
 {
     if (c == '#')
     {
-        // Start of statement 
+        std::string instruction = get_sequence(ALPHA);
+        std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
+
+        if (instruction == "define")
+        {
+
+        }
+        else if (instruction == "include")
+        {
+
+        }
+        else if (instruction == "ifdef" || instruction == "ifndef")
+        {
+            std::string macro = get_sequence(ALPHA | NUMERIC | UNDERSCORE);
+            std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
+
+            bool is_defined = m_macros.find(macro) != m_macros.end();
+            bool truthy = instruction == "ifdef" ? is_defined : !is_defined;
+
+            m_control_state = IFSTMT | (truthy ? 0 : BLOCKED);
+        }
+        else if (instruction == "else")
+        {
+            if (m_control_state)
+            {
+                m_control_state &= ~(m_control_state & BLOCKED);
+            }
+            else
+            {
+                throw std::invalid_argument("Unexpected else");
+            }
+            
+        }
+        else if (instruction == "endif")
+        {
+            if (m_control_state)
+            {
+                m_control_state = CLEAR;
+            }
+            else
+            {
+                throw std::invalid_argument("Unexpected endif");
+            }
+        }
+        else if (instruction == "undef")
+        {
+            std::string macro = get_sequence(ALPHA & UNDERSCORE);
+
+            m_macros.erase(macro);
+        }
     }
-    else if (c == '_')
+    else if (c == '_' || isalpha(c))
     {
-        // Potentially start __LINE__, __EXEC etc
+        std::string identifier = get_sequence(ALPHA & NUMERIC & UNDERSCORE);
+        std::transform(identifier.begin(), identifier.end(), identifier.begin(), ::tolower);
+
+        auto mac = m_macros.find(identifier);
+
+        if (mac != m_macros.end())
+        {
+            // add_reader(*mac);
+        }
     }
 
     return c;
@@ -155,4 +214,29 @@ preprocessor::reader_t preprocessor::get_reader()
     }
 
     return m_readers.top();
+}
+
+std::string preprocessor::get_sequence(int flag)
+{
+    std::string chars;
+
+    while (true)
+    {
+        char c = next_char();
+
+        if (
+            isalpha(c) && flag & ALPHA ||
+            isdigit(c) && flag & NUMERIC ||
+            c == '_' && flag & UNDERSCORE)
+        {
+            chars += c;
+        }
+        else
+        {
+            m_in_queue.push(c);
+            break;
+        }    
+    }
+
+    return chars;
 }

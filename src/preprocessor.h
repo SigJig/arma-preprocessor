@@ -7,6 +7,30 @@
 #include <stack>
 #include <functional>
 #include <inttypes.h>
+#include <string>
+#include <map>
+#include <vector>
+
+enum charflag {
+    ALPHA = 1 << 0,
+    NUMERIC = 1 << 2,
+    UNDERSCORE = 1 << 3
+};
+
+enum controlstate {
+    CLEAR = 0,
+    IFSTMT = 1 << 0,
+    BLOCKED = 1 << 1
+};
+
+class macro
+{
+public:
+    macro(std::string name, std::vector<std::string> args);
+
+protected:
+    std::vector<std::string> m_args;
+};
 
 class preprocessor
 {
@@ -33,17 +57,22 @@ protected:
     };
 
     block_t m_block_status = UNBLOCKED;
+    int m_control_state = CLEAR;
 
     char handle_block(char c);
 
     std::queue<char> m_in_queue;
     std::queue<char> m_out_queue;
 
+    std::map<std::string, macro> m_macros;
+
     reader_t get_reader();
 
     std::stack<reader_t> m_readers;
 
     char next_char();
+
+    std::string get_sequence(int flag);
 };
 
 #endif // PREPROCESSOR_H
