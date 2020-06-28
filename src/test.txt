@@ -7,6 +7,8 @@ this is a block comment /*
 
 */
 
+%
+
 "this is a ""string"" "
 
 #define c 2

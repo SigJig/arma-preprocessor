@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <queue>
+#include <stack>
 #include <functional>
 #include <inttypes.h>
 
@@ -17,6 +18,8 @@ public:
     char next();
     char process(char c);
 
+    void add_reader(reader_t& reader);
+
 protected:
     // false by default, true if preprocessing of characters is blocked for some reason.
     // for example, if in a string or a comment the characters will not be processed.
@@ -25,7 +28,8 @@ protected:
         UNBLOCKED = 0,
         STRING,
         SL_COMMENT,
-        ML_COMMENT
+        ML_COMMENT,
+        BLOCKED_BY_USER
     };
 
     block_t m_block_status = UNBLOCKED;
@@ -35,8 +39,9 @@ protected:
     std::queue<char> m_in_queue;
     std::queue<char> m_out_queue;
 
-    // Function that reads raw characters.
-    reader_t m_reader;
+    reader_t get_reader();
+
+    std::stack<reader_t> m_readers;
 
     char next_char();
 };

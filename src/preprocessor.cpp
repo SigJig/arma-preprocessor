@@ -1,10 +1,10 @@
 
 #include "preprocessor.h"
 
-#include <iostream>
+#include <exception>
 
 preprocessor::preprocessor(preprocessor::reader_t reader)
-    : m_reader(reader)
+    : m_readers({reader})
 {  }
 
 char preprocessor::next()
@@ -13,7 +13,11 @@ char preprocessor::next()
     {
         char c = next_char();
 
-        if (m_block_status != UNBLOCKED)
+        if (m_block_status == BLOCKED_BY_USER)
+        {
+            return c;
+        }
+        else if (m_block_status != UNBLOCKED)
         {
             return handle_block(c);
         }
@@ -52,7 +56,14 @@ char preprocessor::next()
 
 char preprocessor::process(char c)
 {
-    //std::cout << c;
+    if (c == '#')
+    {
+        // Start of statement 
+    }
+    else if (c == '_')
+    {
+        // Potentially start __LINE__, __EXEC etc
+    }
 
     return c;
 }
@@ -115,8 +126,33 @@ char preprocessor::next_char()
     }
     else
     {
-        c = m_reader();
+        reader_t reader = this->get_reader();
+        try
+        {
+            c = reader();
+        }
+        catch (const std::out_of_range& e)
+        {
+            m_readers.pop();
+
+            return next_char();
+        }
     }
 
     return c;
+}
+
+void preprocessor::add_reader(reader_t& reader)
+{
+    m_readers.push(reader);
+}
+
+preprocessor::reader_t preprocessor::get_reader()
+{
+    if (m_readers.empty())
+    {
+        throw std::out_of_range("No more readers left");
+    }
+
+    return m_readers.top();
 }

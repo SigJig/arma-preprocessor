@@ -6,7 +6,7 @@
 
 int main(int argc, char** argv)
 {
-    std::ifstream fs("test.txt");
+    std::ifstream fs("src/test.txt");
 
 #if 1
     auto p = preprocessor([&fs](){
