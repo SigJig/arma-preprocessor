@@ -73,6 +73,11 @@ char preprocessor::process(char c)
         }
         else if (instruction == "ifdef" || instruction == "ifndef")
         {
+            if (m_control_state != CLEAR)
+            {
+                throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
+            }
+
             std::string macro = get_sequence(ALPHA | NUMERIC | UNDERSCORE);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
