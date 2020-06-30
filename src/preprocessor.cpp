@@ -4,9 +4,12 @@
 #include <exception>
 #include <ctype.h>
 #include <algorithm>
+#include <unordered_map>
 
-const std::regex identifier("^[a-zA-Z_][\\da-zA-Z_]*$");
-const std::regex alpha("[a-zA-Z]*");
+static const std::unordered_map<std::string, std::regex> patterns = {
+    {"identifier", "^[a-zA-Z_][\\da-zA-Z_]*$"},
+    {"alha", "[a-zA-Z]*"}
+};
 
 preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
@@ -63,7 +66,7 @@ char preprocessor::process(char c)
 {
     if (c == '#')
     {
-        std::string instruction = get_regex(alpha);
+        std::string instruction = get_regex(patterns["alpha"]);
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
 
         if (instruction == "define")
@@ -81,7 +84,7 @@ char preprocessor::process(char c)
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = get_regex(identifier);
+            std::string macro = get_regex(patterns["identifier"]);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             bool is_defined = m_macros.find(macro) != m_macros.end();
@@ -114,14 +117,14 @@ char preprocessor::process(char c)
         }
         else if (instruction == "undef")
         {
-            std::string macro = get_regex(identifier);
+            std::string macro = get_regex(patterns["identifier"]);
 
             m_macros.erase(macro);
         }
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = get_regex(identifier);
+        std::string identifier = get_regex(patterns["identifier"]);
         std::transform(identifier.begin(), identifier.end(), identifier.begin(), ::tolower);
 
         auto mac = m_macros.find(identifier);
