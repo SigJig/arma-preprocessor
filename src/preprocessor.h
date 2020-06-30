@@ -10,12 +10,7 @@
 #include <string>
 #include <map>
 #include <vector>
-
-enum charflag {
-    ALPHA = 1 << 0,
-    NUMERIC = 1 << 2,
-    UNDERSCORE = 1 << 3
-};
+#include <regex>
 
 enum controlstate {
     CLEAR = 0,
@@ -72,7 +67,7 @@ protected:
 
     char next_char();
 
-    std::string get_sequence(int flag);
+    std::string get_regex(std::regex re);
 };
 
 #endif // PREPROCESSOR_H

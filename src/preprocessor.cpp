@@ -5,6 +5,9 @@
 #include <ctype.h>
 #include <algorithm>
 
+const std::regex identifier("^[a-zA-Z_][\\da-zA-Z_]*$");
+const std::regex alpha("[a-zA-Z]*");
+
 preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
 {  }
@@ -60,7 +63,7 @@ char preprocessor::process(char c)
 {
     if (c == '#')
     {
-        std::string instruction = get_sequence(ALPHA);
+        std::string instruction = get_regex(alpha);
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
 
         if (instruction == "define")
@@ -78,7 +81,7 @@ char preprocessor::process(char c)
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = get_sequence(ALPHA | NUMERIC | UNDERSCORE);
+            std::string macro = get_regex(identifier);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             bool is_defined = m_macros.find(macro) != m_macros.end();
@@ -111,14 +114,14 @@ char preprocessor::process(char c)
         }
         else if (instruction == "undef")
         {
-            std::string macro = get_sequence(ALPHA & UNDERSCORE);
+            std::string macro = get_regex(identifier);
 
             m_macros.erase(macro);
         }
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = get_sequence(ALPHA & NUMERIC & UNDERSCORE);
+        std::string identifier = get_regex(identifier);
         std::transform(identifier.begin(), identifier.end(), identifier.begin(), ::tolower);
 
         auto mac = m_macros.find(identifier);
@@ -221,27 +224,26 @@ preprocessor::reader_t preprocessor::get_reader()
     return m_readers.top();
 }
 
-std::string preprocessor::get_sequence(int flag)
+std::string preprocessor::get_regex(std::regex re)
 {
-    std::string chars;
-
+    std::string s = "", tmp_s = s;
+    char c;
+    
     while (true)
     {
-        char c = next_char();
+        c = next_char();
+        tmp_s += c;
 
-        if (
-            isalpha(c) && flag & ALPHA ||
-            isdigit(c) && flag & NUMERIC ||
-            c == '_' && flag & UNDERSCORE)
+        if (std::regex_match(tmp_s, re))
         {
-            chars += c;
+            s = tmp_s;
         }
         else
         {
             m_in_queue.push(c);
             break;
-        }    
+        }
     }
 
-    return chars;
+    return s;
 }
