@@ -5,35 +5,23 @@
 #include <fstream>
 #include <exception>
 
+#define A "========================================"
+
 int main(int argc, char** argv)
 {
-    std::ifstream fs("src/test.txt");
+    file f("src/test.txt");
+    preprocessor pp(f);
 
-#if 1
-    auto p = preprocessor([&fs](){
-        char c;
-
-        if (fs.get(c))
-            return c;
-        else
-            throw std::out_of_range((char*)&c);
-    });
-
+    std::cout << A << std::endl;
     while (true)
     {
-        try {
-            std::cout << p.next_processed();
-        }
-        catch (std::out_of_range e)
-        {
-            break;
-        }
-    };
-#else
-    char c;
-    while (fs.get(c))
+        char c = pp.next_processed();
+
+        if (!c) break;
+
         std::cout << c;
-#endif
+    }
+    std::cout << std::endl << A << std::endl;
 
     return 0;
 }

@@ -43,6 +43,11 @@ macro::instance macro::make_instance(std::vector<std::string> args)
     return instance(args, this);
 }
 
+preprocessor::preprocessor(file& f)
+{
+    add_reader(f.get_reader());
+}
+
 preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
 {  }
@@ -63,9 +68,12 @@ char preprocessor::next_raw()
             reader_t reader = get_reader();
             c = reader();
 
-            if (c == 0) m_readers.pop();
+            if (c == 0) {
+                m_readers.pop();
 
-            return c;
+                if (!m_readers.size()) break;
+            }
+            else break;
         }
     }
 
@@ -131,7 +139,7 @@ char preprocessor::next_processed()
     {
         char c = next_unprocessed();
 
-        if (m_block_status == BLOCKED_BY_USER)
+        if (!c  || m_block_status == BLOCKED_BY_USER)
         {
             return c;
         }
@@ -310,7 +318,7 @@ char preprocessor::process(char c)
     return c;
 }
 
-void preprocessor::add_reader(const reader_t& reader)
+void preprocessor::add_reader(reader_t reader)
 {
     m_readers.push(reader);
 }

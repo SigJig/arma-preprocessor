@@ -2,6 +2,8 @@
 #ifndef PREPROCESSOR_H
 #define PREPROCESSOR_H
 
+#include "file.h"
+
 #include <queue>
 #include <stack>
 #include <functional>
@@ -46,12 +48,13 @@ class preprocessor
 public:
     typedef std::function<char()> reader_t;
 
+    preprocessor(file& f);
     preprocessor(reader_t reader);
 
     char next_processed();
     char process(char c);
 
-    void add_reader(const reader_t& reader);
+    void add_reader(reader_t reader);
 
 protected:
     // false by default, true if preprocessing of characters is blocked for some reason.
