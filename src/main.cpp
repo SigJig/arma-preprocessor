@@ -22,7 +22,7 @@ int main(int argc, char** argv)
     while (true)
     {
         try {
-            std::cout << p.next();
+            std::cout << p.next_processed();
         }
         catch (std::out_of_range e)
         {

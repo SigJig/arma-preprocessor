@@ -19,20 +19,26 @@ public:
     class instance
     {
     public:
-        instance(std::vector<std::string> args);
+        instance(std::vector<std::string> args, macro* parent);
 
         char advance()
         {
             return 0;
         }
 
-        char operator()();
+        char operator()() { return advance(); }
+
+    protected:
+        std::vector<std::string> m_args;
+        macro* m_parent;
     };
 
     instance make_instance(std::vector<std::string> args);
 
 protected:
+    std::string m_name;
     std::vector<std::string> m_args;
+    std::string m_content;
 };
 
 class preprocessor
@@ -45,7 +51,7 @@ public:
     char next_processed();
     char process(char c);
 
-    void add_reader(reader_t& reader);
+    void add_reader(const reader_t& reader);
 
 protected:
     // false by default, true if preprocessing of characters is blocked for some reason.

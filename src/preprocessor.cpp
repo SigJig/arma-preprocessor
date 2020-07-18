@@ -7,7 +7,7 @@
 #include <unordered_map>
 
 static std::unordered_map<std::string, std::function<bool(char)>> callbacks {
-    {"identfier", [](char c) -> bool {
+    {"identifier", [](char c) -> bool {
         static bool is_first = true;
 
         if (is_first)
@@ -19,6 +19,29 @@ static std::unordered_map<std::string, std::function<bool(char)>> callbacks {
         return c == '_' || isalnum(c);
     }}
 };
+
+
+macro::macro(std::string name, std::vector<std::string> args, std::string content)
+    : m_name(name), m_args(args), m_content(content)
+{
+    
+}
+
+macro::instance::instance(std::vector<std::string> args, macro* parent)
+    : m_args(args), m_parent(parent)
+{
+
+}
+
+macro::instance macro::make_instance(std::vector<std::string> args)
+{
+    if (args.size() != m_args.size())
+    {
+        // throw exception
+    }
+
+    return instance(args, this);
+}
 
 preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
@@ -53,6 +76,7 @@ char preprocessor::next_unprocessed()
 {
     while (true) {
         char c = next_raw();
+        char c_n;
 
         if (m_block_status == SL_COMMENT)
         {
@@ -80,7 +104,7 @@ char preprocessor::next_unprocessed()
         }
         else if (c == '/')
         {
-            char c_n = next_raw();
+            c_n = next_raw();
 
             if (c_n == '/' || c_n == '*')
             {
@@ -137,7 +161,7 @@ char preprocessor::process(char c)
 
         if (instruction == "define")
         {
-            std::string macro = make_string(callbacks["identifier"]);
+            std::string mac_name = make_string(callbacks["identifier"]);
             std::vector<std::string> args;
 
             char c_n = next_unprocessed();
@@ -184,11 +208,19 @@ char preprocessor::process(char c)
                 return true;
             });
 
-            m_macros.emplace(macro, (macro, args, content));
+            m_macros.emplace(mac_name, macro(mac_name, args, content));
         }
         else if (instruction == "include")
         {
+            std::string s;
 
+            if (s[0] == '"' && s.back() == '"')
+            {
+                s.erase(s.begin());
+                s.erase(s.end());
+            }
+
+            // add reader
         }
         else if (instruction == "ifdef" || instruction == "ifndef")
         {
@@ -278,7 +310,7 @@ char preprocessor::process(char c)
     return c;
 }
 
-void preprocessor::add_reader(reader_t& reader)
+void preprocessor::add_reader(const reader_t& reader)
 {
     m_readers.push(reader);
 }
