@@ -6,9 +6,18 @@
 #include <algorithm>
 #include <unordered_map>
 
-static const std::unordered_map<std::string, std::regex> patterns = {
-    {"identifier", "^[a-zA-Z_][\\da-zA-Z_]*$"},
-    {"alha", "[a-zA-Z]*"}
+static std::unordered_map<std::string, std::function<bool(char)>> callbacks {
+    {"identfier", [](char c) -> bool {
+        static bool is_first = true;
+
+        if (is_first)
+        {
+            is_first = false;
+            return c == '_' || isalpha(c);
+        }
+
+        return c == '_' || isalnum(c);
+    }}
 };
 
 preprocessor::preprocessor(preprocessor::reader_t reader)
@@ -41,11 +50,11 @@ char preprocessor::next()
             if (c_n == '/' || c_n == '*')
             {
                 m_block_status = c_n == '/' ? SL_COMMENT : ML_COMMENT;
-                m_out_queue.push(c_n);
+                fast_track(c_n);
             }
             else
             {
-                m_in_queue.push(c_n);
+                put_back(c_n);
             }
 
             return c;
@@ -66,12 +75,59 @@ char preprocessor::process(char c)
 {
     if (c == '#')
     {
-        std::string instruction = get_regex(patterns["alpha"]);
+        std::string instruction = sequence(callbacks["identifier"]);
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
 
         if (instruction == "define")
         {
+            std::string macro = sequence(callbacks["identifier"]);
+            std::vector<std::string> args;
 
+            char c_n = next_char();
+
+            if (c_n == '(')
+            {
+                c_n = next_char();
+
+                while (c_n != ')')
+                {
+                    std::string arg;
+                    for (; c_n != ',' && c_n != ')'; c_n = next_char())
+                    {
+                        if (!(isalpha(c_n) || c_n == '_'))
+                        {
+                            // throw exception
+                        }
+                        else
+                        {
+                            arg += c_n;
+                        }
+                    }
+                    args.push_back(arg);
+                    arg = "";
+                }
+            }
+            else
+            {
+                put_back(c_n);
+            }
+            
+            std::string content = sequence([](char c) -> bool {
+                static bool is_escaped = false;
+
+                if (c == '\n')
+                {
+                    // if the character is a newline and it is not preceded by a '\'
+                    if (!is_escaped) return false;
+                    else { is_escaped = false; }
+                }
+                else if (c == '\\') is_escaped = !is_escaped;
+                else if (!isspace(c)) is_escaped = false;
+
+                return true;
+            });
+
+            m_macros.emplace(macro, (macro, args, content));
         }
         else if (instruction == "include")
         {
@@ -84,7 +140,7 @@ char preprocessor::process(char c)
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = get_regex(patterns["identifier"]);
+            std::string macro = sequence(callbacks["identifier"]);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             bool is_defined = m_macros.find(macro) != m_macros.end();
@@ -117,21 +173,48 @@ char preprocessor::process(char c)
         }
         else if (instruction == "undef")
         {
-            std::string macro = get_regex(patterns["identifier"]);
+            std::string macro = sequence(callbacks["identifier"]);
+            std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             m_macros.erase(macro);
         }
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = get_regex(patterns["identifier"]);
-        std::transform(identifier.begin(), identifier.end(), identifier.begin(), ::tolower);
+        std::string identifier = sequence(callbacks["identifier"]);
 
-        auto mac = m_macros.find(identifier);
+        // Keep a seperate variable for the lowered identifer, so that if
+        // it is not a macro we can put back the original characters.
+        std::string lowered = identifier;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::tolower);
+
+        const auto mac = m_macros.find(lowered);
 
         if (mac != m_macros.end())
         {
-            // add_reader(*mac);
+            std::vector<std::string > args;
+
+            char c_n = next_char();
+
+            if (c_n == '(')
+            {
+                while (next_char() != ')')
+                {
+                    args.push_back(sequence([](char c) -> bool {
+                        return c != ',' && c != ')';
+                    }));
+                }
+            }
+            else
+            {
+                put_back(c_n);
+            }
+
+            add_reader(mac->second.make_instance(args));
+        }
+        else
+        {
+            for (auto c : identifier) fast_track(c);
         }
     }
 
@@ -142,21 +225,9 @@ char preprocessor::handle_block(char c)
 {
     char c_n;
 
-    if (m_block_status == STRING)
+    if (m_block_status == STRING && c == '"')
     {
-        if (c != '"') return c;
-
-        c_n = next_char();
-
-        if (c_n != '"')
-        {
-            m_in_queue.push(c_n);
-            m_block_status = UNBLOCKED;
-        }
-        else
-        {
-            m_out_queue.push(c_n);
-        }
+        m_block_status = UNBLOCKED;
     }
     else if (m_block_status == SL_COMMENT)
     {
@@ -173,11 +244,11 @@ char preprocessor::handle_block(char c)
 
         if (c_n != '/')
         {
-            m_in_queue.push(c_n);
+            put_back(c_n);
         }
         else
         {
-            m_out_queue.push(c_n);
+            fast_track(c_n);
             m_block_status = UNBLOCKED;
         }
     }
@@ -185,7 +256,7 @@ char preprocessor::handle_block(char c)
     return c;
 }
 
-char preprocessor::next_char()
+char preprocessor::next_char(int char_exclude)
 {
     char c;
 
@@ -209,6 +280,16 @@ char preprocessor::next_char()
         }
     }
 
+    // TODO: Should probably be iterative as it can overflow the stack
+    if (char_exclude & SPACE && c == ' ')
+    {
+        return next_char(char_exclude);
+    }
+    else if (char_exclude & ALL_WHITESPACE && isspace(c))
+    {
+        return next_char(char_exclude);
+    }
+
     return c;
 }
 
@@ -227,26 +308,24 @@ preprocessor::reader_t preprocessor::get_reader()
     return m_readers.top();
 }
 
-std::string preprocessor::get_regex(std::regex re)
+void preprocessor::put_back(char c)
 {
-    std::string s = "", tmp_s = s;
-    char c;
-    
-    while (true)
-    {
-        c = next_char();
-        tmp_s += c;
+    m_in_queue.push(c);
+}
 
-        if (std::regex_match(tmp_s, re))
-        {
-            s = tmp_s;
-        }
-        else
-        {
-            m_in_queue.push(c);
-            break;
-        }
-    }
+void preprocessor::fast_track(char c)
+{
+    m_out_queue.push(c);
+}
+
+std::string preprocessor::sequence(std::function<bool(char)> callback)
+{
+    std::string s;
+    
+    char c = next_char();
+    for (; callback(c); c = next_char()) s += c;
+    
+    put_back(c);
 
     return s;
 }

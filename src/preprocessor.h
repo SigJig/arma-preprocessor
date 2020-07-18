@@ -2,7 +2,6 @@
 #ifndef PREPROCESSOR_H
 #define PREPROCESSOR_H
 
-#include <iostream>
 #include <queue>
 #include <stack>
 #include <functional>
@@ -12,16 +11,31 @@
 #include <vector>
 #include <regex>
 
-enum controlstate {
-    CLEAR = 0,
-    IFSTMT = 1 << 0,
-    BLOCKED = 1 << 1
+enum char_exclude_flag {
+    NONE = 0,
+    ALL_WHITESPACE = 1 << 0,
+    SPACE = 1 << 1 // includes things like \n and \t, but not ' '
 };
 
 class macro
 {
 public:
-    macro(std::string name, std::vector<std::string> args);
+    macro(std::string name, std::vector<std::string> args, std::string content);
+
+    class instance
+    {
+    public:
+        instance(std::vector<std::string> args);
+
+        char advance()
+        {
+            return 0;
+        }
+
+        char operator()();
+    };
+
+    instance make_instance(std::vector<std::string> args);
 
 protected:
     std::vector<std::string> m_args;
@@ -51,13 +65,25 @@ protected:
         BLOCKED_BY_USER
     };
 
-    block_t m_block_status = UNBLOCKED;
-    int m_control_state = CLEAR;
+    enum controlstate {
+        CLEAR = 0,
+        IFSTMT = 1 << 0,
+        BLOCKED = 1 << 1
+    };
 
-    char handle_block(char c);
+    // used for determining whether or not to preprocess the current character
+    block_t m_block_status = UNBLOCKED;
+
+    // used for determining whether or not to return the current character
+    int m_control_state = CLEAR;
 
     std::queue<char> m_in_queue;
     std::queue<char> m_out_queue;
+
+    char handle_block(char c);
+
+    void put_back(char c); // Put a character back into the in queue
+    void fast_track(char c); // Push a character directly to the out queue
 
     std::map<std::string, macro> m_macros;
 
@@ -65,9 +91,9 @@ protected:
 
     std::stack<reader_t> m_readers;
 
-    char next_char();
+    char next_char(int char_exclude = NONE);
 
-    std::string get_regex(std::regex re);
+    std::string sequence(std::function<bool(char)> callback);
 };
 
 #endif // PREPROCESSOR_H

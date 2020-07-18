@@ -1,6 +1,7 @@
 
 #include "preprocessor.h"
 
+#include <iostream>
 #include <fstream>
 #include <exception>
 
