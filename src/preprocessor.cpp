@@ -24,39 +24,96 @@ preprocessor::preprocessor(preprocessor::reader_t reader)
     : m_readers({reader})
 {  }
 
-char preprocessor::next()
+char preprocessor::next_raw()
+{
+    char c;
+
+    if (!m_in_queue.empty())
+    {
+        c = m_in_queue.front();
+        m_in_queue.pop();
+    }
+    else
+    {
+        while (true)
+        {
+            reader_t reader = get_reader();
+            c = reader();
+
+            if (c == 0) m_readers.pop();
+
+            return c;
+        }
+    }
+
+    return c;
+}
+
+char preprocessor::next_unprocessed()
+{
+    while (true) {
+        char c = next_raw();
+
+        if (m_block_status == SL_COMMENT)
+        {
+            if (c == '\n')
+            {
+                m_block_status = UNBLOCKED;
+            }
+        }
+        else if (m_block_status == ML_COMMENT)
+        {
+            if (c == '*')
+            {
+                c_n = next_raw();
+
+                if (c_n != '/')
+                {
+                    put_back(c_n);
+                }
+                else
+                {
+                    // fast_track(c_n);
+                    m_block_status = UNBLOCKED;
+                }
+            }
+        }
+        else if (c == '/')
+        {
+            char c_n = next_raw();
+
+            if (c_n == '/' || c_n == '*')
+            {
+                m_block_status = c_n == '/' ? SL_COMMENT : ML_COMMENT;
+                //fast_track(c_n);
+            }
+            else
+            {
+                put_back(c_n);
+                return c;
+            }
+        }
+        else
+        {
+            return c;
+        }
+    }
+}
+
+// public method
+char preprocessor::next_processed()
 {
     if (m_out_queue.empty())
     {
-        char c = next_char();
+        char c = next_unprocessed();
 
         if (m_block_status == BLOCKED_BY_USER)
         {
             return c;
         }
-        else if (m_block_status != UNBLOCKED)
-        {
-            return handle_block(c);
-        }
         else if (c == '"')
         {
-            m_block_status = STRING;
-            return c;
-        }
-        else if (c == '/')
-        {
-            char c_n = next_char();
-
-            if (c_n == '/' || c_n == '*')
-            {
-                m_block_status = c_n == '/' ? SL_COMMENT : ML_COMMENT;
-                fast_track(c_n);
-            }
-            else
-            {
-                put_back(c_n);
-            }
-
+            m_block_status = (m_block_status == STRING) ? UNBLOCKED : STRING;
             return c;
         }
 
@@ -75,24 +132,24 @@ char preprocessor::process(char c)
 {
     if (c == '#')
     {
-        std::string instruction = sequence(callbacks["identifier"]);
+        std::string instruction = make_string(callbacks["identifier"]);
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
 
         if (instruction == "define")
         {
-            std::string macro = sequence(callbacks["identifier"]);
+            std::string macro = make_string(callbacks["identifier"]);
             std::vector<std::string> args;
 
-            char c_n = next_char();
+            char c_n = next_unprocessed();
 
             if (c_n == '(')
             {
-                c_n = next_char();
+                c_n = next_unprocessed();
 
                 while (c_n != ')')
                 {
                     std::string arg;
-                    for (; c_n != ',' && c_n != ')'; c_n = next_char())
+                    for (; c_n != ',' && c_n != ')'; c_n = next_unprocessed())
                     {
                         if (!(isalpha(c_n) || c_n == '_'))
                         {
@@ -112,7 +169,7 @@ char preprocessor::process(char c)
                 put_back(c_n);
             }
             
-            std::string content = sequence([](char c) -> bool {
+            std::string content = make_string([](char c) -> bool {
                 static bool is_escaped = false;
 
                 if (c == '\n')
@@ -140,7 +197,7 @@ char preprocessor::process(char c)
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = sequence(callbacks["identifier"]);
+            std::string macro = make_string(callbacks["identifier"]);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             bool is_defined = m_macros.find(macro) != m_macros.end();
@@ -173,7 +230,7 @@ char preprocessor::process(char c)
         }
         else if (instruction == "undef")
         {
-            std::string macro = sequence(callbacks["identifier"]);
+            std::string macro = make_string(callbacks["identifier"]);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             m_macros.erase(macro);
@@ -181,7 +238,7 @@ char preprocessor::process(char c)
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = sequence(callbacks["identifier"]);
+        std::string identifier = make_string(callbacks["identifier"]);
 
         // Keep a seperate variable for the lowered identifer, so that if
         // it is not a macro we can put back the original characters.
@@ -194,13 +251,13 @@ char preprocessor::process(char c)
         {
             std::vector<std::string > args;
 
-            char c_n = next_char();
+            char c_n = next_unprocessed();
 
             if (c_n == '(')
             {
-                while (next_char() != ')')
+                while (next_unprocessed() != ')')
                 {
-                    args.push_back(sequence([](char c) -> bool {
+                    args.push_back(make_string([](char c) -> bool {
                         return c != ',' && c != ')';
                     }));
                 }
@@ -216,78 +273,6 @@ char preprocessor::process(char c)
         {
             for (auto c : identifier) fast_track(c);
         }
-    }
-
-    return c;
-}
-
-char preprocessor::handle_block(char c)
-{
-    char c_n;
-
-    if (m_block_status == STRING && c == '"')
-    {
-        m_block_status = UNBLOCKED;
-    }
-    else if (m_block_status == SL_COMMENT)
-    {
-        if (c == '\n')
-        {
-            m_block_status = UNBLOCKED;
-        }
-    }
-    else if (m_block_status == ML_COMMENT)
-    {
-        if (c != '*') return c;
-
-        c_n = next_char();
-
-        if (c_n != '/')
-        {
-            put_back(c_n);
-        }
-        else
-        {
-            fast_track(c_n);
-            m_block_status = UNBLOCKED;
-        }
-    }
-
-    return c;
-}
-
-char preprocessor::next_char(int char_exclude)
-{
-    char c;
-
-    if (!m_in_queue.empty())
-    {
-        c = m_in_queue.front();
-        m_in_queue.pop();
-    }
-    else
-    {
-        reader_t reader = this->get_reader();
-        try
-        {
-            c = reader();
-        }
-        catch (const std::out_of_range& e)
-        {
-            m_readers.pop();
-
-            return next_char();
-        }
-    }
-
-    // TODO: Should probably be iterative as it can overflow the stack
-    if (char_exclude & SPACE && c == ' ')
-    {
-        return next_char(char_exclude);
-    }
-    else if (char_exclude & ALL_WHITESPACE && isspace(c))
-    {
-        return next_char(char_exclude);
     }
 
     return c;
@@ -318,13 +303,13 @@ void preprocessor::fast_track(char c)
     m_out_queue.push(c);
 }
 
-std::string preprocessor::sequence(std::function<bool(char)> callback)
+std::string preprocessor::make_string(std::function<bool(char)> callback)
 {
     std::string s;
     
-    char c = next_char();
-    for (; callback(c); c = next_char()) s += c;
-    
+    char c = next_unprocessed();
+    for (; callback(c); c = next_unprocessed()) s += c;
+
     put_back(c);
 
     return s;

@@ -11,12 +11,6 @@
 #include <vector>
 #include <regex>
 
-enum char_exclude_flag {
-    NONE = 0,
-    ALL_WHITESPACE = 1 << 0,
-    SPACE = 1 << 1 // includes things like \n and \t, but not ' '
-};
-
 class macro
 {
 public:
@@ -48,7 +42,7 @@ public:
 
     preprocessor(reader_t reader);
 
-    char next();
+    char next_processed();
     char process(char c);
 
     void add_reader(reader_t& reader);
@@ -91,9 +85,10 @@ protected:
 
     std::stack<reader_t> m_readers;
 
-    char next_char(int char_exclude = NONE);
+    char next_unprocessed();
+    char next_raw();
 
-    std::string sequence(std::function<bool(char)> callback);
+    std::string make_string(std::function<bool(char)> callback);
 };
 
 #endif // PREPROCESSOR_H
