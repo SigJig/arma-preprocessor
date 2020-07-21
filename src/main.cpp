@@ -9,13 +9,15 @@
 
 int main(int argc, char** argv)
 {
-    file f("src/test.txt");
-    preprocessor pp(f);
+    std::unique_ptr<std::istream> is(new std::ifstream("src/test.txt"));
+    //preprocessor pp(static_cast<std::unique_ptr<std::istream>>(std::move(is)));
+
+    preprocessor pp(std::move(is));
 
     std::cout << A << std::endl;
     while (true)
     {
-        char c = pp.next_processed();
+        char c = pp.next();
 
         if (!c) break;
 

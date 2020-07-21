@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <unordered_map>
 
-static std::unordered_map<std::string, std::function<bool(char)>> callbacks {
+static std::unordered_map<std::string, std::function<bool(char)>> validators {
     {"identifier", [](char c) -> bool {
         static bool is_first = true;
 
@@ -27,32 +27,41 @@ macro::macro(std::string name, std::vector<std::string> args, std::string conten
     
 }
 
-macro::instance::instance(std::vector<std::string> args, macro* parent)
-    : m_args(args), m_parent(parent)
+macro::node::node(std::vector<std::string> args, macro* parent, preprocessor* pp)
+    : m_args(args), m_parent(parent), m_pp(pp)
 {
-
+    m_stream = std::make_unique<std::stringstream>(m_parent->get_content());
 }
 
-macro::instance macro::make_instance(std::vector<std::string> args)
+macro::node macro::make_node(std::vector<std::string> args, preprocessor* pp)
 {
     if (args.size() != m_args.size())
     {
         // throw exception
     }
 
-    return instance(args, this);
+    return node(args, this, pp);
 }
 
-preprocessor::preprocessor(file& f)
+
+char preprocessor::node::next()
 {
-    add_reader(f.get_reader());
+    char c;
+
+    if (!m_out_queue.empty())
+    {
+        c = m_out_queue.front();
+        m_out_queue.pop();
+    }
+    else
+    {
+        c = next_processed();
+    }
+
+    return c;
 }
 
-preprocessor::preprocessor(preprocessor::reader_t reader)
-    : m_readers({reader})
-{  }
-
-char preprocessor::next_raw()
+char preprocessor::node::next_raw()
 {
     char c;
 
@@ -63,24 +72,50 @@ char preprocessor::next_raw()
     }
     else
     {
-        while (true)
-        {
-            reader_t reader = get_reader();
-            c = reader();
-
-            if (c == 0) {
-                m_readers.pop();
-
-                if (!m_readers.size()) break;
-            }
-            else break;
-        }
+        c = m_stream->get();
     }
 
     return c;
 }
 
-char preprocessor::next_unprocessed()
+char preprocessor::node::next_unprocessed()
+{
+    return next_raw();
+}
+
+void preprocessor::node::put_back(char c)
+{
+    m_in_queue.push(c);
+}
+
+void preprocessor::node::fast_track(char c)
+{
+    m_out_queue.push(c);
+}
+
+std::string preprocessor::node::make_string(std::function<bool(char)> validator)
+{
+    std::string s;
+    
+    char c = next_unprocessed();
+    for (; validator(c); c = next_unprocessed()) s += c;
+
+    put_back(c);
+
+    return s;
+}
+
+/*preprocessor::preprocessor(std::istream* stream)
+{
+    m_stream = std::make_unique<std::istream>(stream);
+}*/
+
+preprocessor::node::node(std::unique_ptr<std::istream> stream)
+{
+    m_stream = std::move(stream);
+}
+
+char preprocessor::node::next_unprocessed()
 {
     while (true) {
         char c = next_raw();
@@ -132,44 +167,30 @@ char preprocessor::next_unprocessed()
     }
 }
 
-// public method
-char preprocessor::next_processed()
+char preprocessor::node::next()
 {
-    if (m_out_queue.empty())
+    char c = next_unprocessed();
+
+    if (!c  || m_block_status == BLOCKED_BY_USER)
     {
-        char c = next_unprocessed();
-
-        if (!c  || m_block_status == BLOCKED_BY_USER)
-        {
-            return c;
-        }
-        else if (c == '"')
-        {
-            m_block_status = (m_block_status == STRING) ? UNBLOCKED : STRING;
-            return c;
-        }
-
-        return process(c);
+        // TODO: If c is invalid it should do something idek
+        return c;
     }
-    else
+    else if (c == '"')
     {
-        char front = m_out_queue.front();
-        m_out_queue.pop();
-
-        return front;
+        m_block_status = (m_block_status == STRING) ? UNBLOCKED : STRING;
+        return c;
     }
-}
-
-char preprocessor::process(char c)
-{
-    if (c == '#')
+    else if (c == '#')
     {
-        std::string instruction = make_string(callbacks["identifier"]);
+        std::string instruction = make_string(validators["identifier"]);
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
+
+        auto macros = m_pp->get_macros();
 
         if (instruction == "define")
         {
-            std::string mac_name = make_string(callbacks["identifier"]);
+            std::string mac_name = make_string(validators["identifier"]);
             std::vector<std::string> args;
 
             char c_n = next_unprocessed();
@@ -216,7 +237,7 @@ char preprocessor::process(char c)
                 return true;
             });
 
-            m_macros.emplace(mac_name, macro(mac_name, args, content));
+            m_pp->add_macro(mac_name, macro(mac_name, args, content));
         }
         else if (instruction == "include")
         {
@@ -237,10 +258,10 @@ char preprocessor::process(char c)
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = make_string(callbacks["identifier"]);
+            std::string macro = make_string(validators["identifier"]);
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
-            bool is_defined = m_macros.find(macro) != m_macros.end();
+            bool is_defined = m_pp->find_macro(macro) != macros.end();
             bool truthy = instruction == "ifdef" ? is_defined : !is_defined;
 
             m_control_state = IFSTMT | (truthy ? 0 : BLOCKED);
@@ -270,24 +291,25 @@ char preprocessor::process(char c)
         }
         else if (instruction == "undef")
         {
-            std::string macro = make_string(callbacks["identifier"]);
-            std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
+            std::string mac = make_string(validators["identifier"]);
+            std::transform(mac.begin(), mac.end(), mac.begin(), ::tolower);
 
-            m_macros.erase(macro);
+            m_pp->remove_macro(mac);
         }
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = make_string(callbacks["identifier"]);
+        std::string identifier = make_string(validators["identifier"]);
 
         // Keep a seperate variable for the lowered identifer, so that if
         // it is not a macro we can put back the original characters.
         std::string lowered = identifier;
         std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::tolower);
 
-        const auto mac = m_macros.find(lowered);
+        const auto mac = m_pp->find_macro(lowered);
+        auto macros = m_pp->get_macros();
 
-        if (mac != m_macros.end())
+        if (mac != macros.end())
         {
             std::vector<std::string > args;
 
@@ -307,7 +329,9 @@ char preprocessor::process(char c)
                 put_back(c_n);
             }
 
-            add_reader(mac->second.make_instance(args));
+            m_pp->add_node(
+                std::make_shared<node>(mac->second.make_node(args, m_pp))
+            );
         }
         else
         {
@@ -316,41 +340,4 @@ char preprocessor::process(char c)
     }
 
     return c;
-}
-
-void preprocessor::add_reader(reader_t reader)
-{
-    m_readers.push(reader);
-}
-
-preprocessor::reader_t preprocessor::get_reader()
-{
-    if (m_readers.empty())
-    {
-        throw std::out_of_range("No more readers left");
-    }
-
-    return m_readers.top();
-}
-
-void preprocessor::put_back(char c)
-{
-    m_in_queue.push(c);
-}
-
-void preprocessor::fast_track(char c)
-{
-    m_out_queue.push(c);
-}
-
-std::string preprocessor::make_string(std::function<bool(char)> callback)
-{
-    std::string s;
-    
-    char c = next_unprocessed();
-    for (; callback(c); c = next_unprocessed()) s += c;
-
-    put_back(c);
-
-    return s;
 }

@@ -2,8 +2,6 @@
 #ifndef PREPROCESSOR_H
 #define PREPROCESSOR_H
 
-#include "file.h"
-
 #include <queue>
 #include <stack>
 #include <functional>
@@ -12,30 +10,30 @@
 #include <map>
 #include <vector>
 #include <regex>
+#include <memory>
 
 class macro
 {
 public:
     macro(std::string name, std::vector<std::string> args, std::string content);
 
-    class instance
+    std::string get_content() { return m_content; }
+
+    class node : public preprocessor::node
     {
     public:
-        instance(std::vector<std::string> args, macro* parent);
-
-        char advance()
-        {
-            return 0;
-        }
-
-        char operator()() { return advance(); }
+        node(std::vector<std::string> args, macro* parent, preprocessor* pp);
+        node(const node&) = default;
+        node(node&) = default;
 
     protected:
+        char next_processed() { return 0; }
+
         std::vector<std::string> m_args;
         macro* m_parent;
     };
 
-    instance make_instance(std::vector<std::string> args);
+    node make_node(std::vector<std::string> args, preprocessor* pp);
 
 protected:
     std::string m_name;
@@ -43,61 +41,72 @@ protected:
     std::string m_content;
 };
 
+
 class preprocessor
 {
 public:
-    typedef std::function<char()> reader_t;
+    class node
+    {
+    public:
+        node(std::unique_ptr<std::istream> stream, preprocessor* pp);
+        node(node& other) = default;
+        node(const node& other) = default;
 
-    preprocessor(file& f);
-    preprocessor(reader_t reader);
+        char next();
+    protected:
+        enum block_t
+        {
+            UNBLOCKED = 0,
+            STRING,
+            SL_COMMENT,
+            ML_COMMENT,
+            BLOCKED_BY_USER
+        };
 
-    char next_processed();
-    char process(char c);
+        enum controlstate {
+            CLEAR = 0,
+            IFSTMT = 1 << 0,
+            BLOCKED = 1 << 1
+        };
 
-    void add_reader(reader_t reader);
+        char next_raw();
+        void put_back(char c); // Put a character back into the in queue
+        void fast_track(char c); // Push a character directly to the out queue
+    
+        virtual char next_processed() = 0;
+        virtual char next_unprocessed();
+
+        std::string make_string(std::function<bool(char)> validator);
+
+        std::unique_ptr<std::istream> m_stream;
+
+        std::queue<char> m_in_queue;
+        std::queue<char> m_out_queue;
+
+        preprocessor* m_pp;
+
+        // used for determining whether or not to preprocess the current character
+        block_t m_block_status = UNBLOCKED;
+
+        // used for determining whether or not to return the current character
+        int m_control_state = CLEAR;
+    };
+
+    char next();
+    void add_node(std::shared_ptr<node> n);
+
+    void add_macro(std::string name, macro m);
+    void remove_macro(std::string name);
+    std::map<std::string, macro>::iterator find_macro(std::string name);
+
+    std::map<std::string, macro> get_macros();
 
 protected:
-    // false by default, true if preprocessing of characters is blocked for some reason.
-    // for example, if in a string or a comment the characters will not be processed.
-    enum block_t
-    {
-        UNBLOCKED = 0,
-        STRING,
-        SL_COMMENT,
-        ML_COMMENT,
-        BLOCKED_BY_USER
-    };
-
-    enum controlstate {
-        CLEAR = 0,
-        IFSTMT = 1 << 0,
-        BLOCKED = 1 << 1
-    };
-
-    // used for determining whether or not to preprocess the current character
-    block_t m_block_status = UNBLOCKED;
-
-    // used for determining whether or not to return the current character
-    int m_control_state = CLEAR;
-
-    std::queue<char> m_in_queue;
-    std::queue<char> m_out_queue;
-
-    char handle_block(char c);
-
-    void put_back(char c); // Put a character back into the in queue
-    void fast_track(char c); // Push a character directly to the out queue
 
     std::map<std::string, macro> m_macros;
-
-    reader_t get_reader();
-
-    std::stack<reader_t> m_readers;
+    std::stack<std::shared_ptr<node>> m_nodes;
 
     char next_unprocessed();
-    char next_raw();
-
-    std::string make_string(std::function<bool(char)> callback);
 };
 
 #endif // PREPROCESSOR_H
