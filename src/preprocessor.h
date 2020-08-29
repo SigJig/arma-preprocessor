@@ -7,34 +7,61 @@
 #include <functional>
 #include <inttypes.h>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <vector>
 #include <regex>
 #include <memory>
 
+class preprocessor;
+
+class node
+{
+public:
+    node(preprocessor* pp);
+    node(std::shared_ptr<std::istream> stream);
+
+    char next();
+
+protected:
+    char next_raw();
+    void put_back(char c); // Put a character back into the in queue
+    void fast_track(char c); // Push a character directly to the out queue
+
+    std::queue<char> m_in_queue;
+    std::queue<char> m_out_queue;
+
+    virtual char next_processed() = 0;
+    virtual char next_unprocessed();
+
+    std::string make_string(std::function<bool(char)> validator);
+    std::shared_ptr<std::istream> m_stream;
+
+    preprocessor* m_pp;
+};
+
+
 class macro
 {
 public:
-    macro(std::string name, std::vector<std::string> args, std::string content);
-
-    std::string get_content() { return m_content; }
-
-    class node : public preprocessor::node
+    class macro_node : public node
     {
     public:
-        node(std::vector<std::string> args, macro* parent, preprocessor* pp);
-        node(const node&) = default;
-        node(node&) = default;
+        macro_node(preprocessor* pp);
+        macro_node(std::vector<std::string> args, const macro* parent, preprocessor* pp);
 
+        char next_processed();
+        
     protected:
-        char next_processed() { return 0; }
-
         std::vector<std::string> m_args;
-        macro* m_parent;
+        const macro* m_parent;
     };
 
-    node make_node(std::vector<std::string> args, preprocessor* pp);
+    macro(std::string name, std::vector<std::string> args, std::string content);
 
+    std::string get_content() const { return m_content; }
+    
+    std::shared_ptr<macro::macro_node> make_node(std::vector<std::string> args, preprocessor* pp) const;
+    
 protected:
     std::string m_name;
     std::vector<std::string> m_args;
@@ -45,14 +72,12 @@ protected:
 class preprocessor
 {
 public:
-    class node
+    class proc_node : public node
     {
     public:
-        node(std::unique_ptr<std::istream> stream, preprocessor* pp);
-        node(node& other) = default;
-        node(const node& other) = default;
-
-        char next();
+        proc_node(std::shared_ptr<std::istream> stream, preprocessor* pp);
+        proc_node(proc_node& other) = default;
+        proc_node(const proc_node& other) = default;
     protected:
         enum block_t
         {
@@ -69,21 +94,9 @@ public:
             BLOCKED = 1 << 1
         };
 
-        char next_raw();
-        void put_back(char c); // Put a character back into the in queue
-        void fast_track(char c); // Push a character directly to the out queue
-    
-        virtual char next_processed() = 0;
-        virtual char next_unprocessed();
 
-        std::string make_string(std::function<bool(char)> validator);
-
-        std::unique_ptr<std::istream> m_stream;
-
-        std::queue<char> m_in_queue;
-        std::queue<char> m_out_queue;
-
-        preprocessor* m_pp;
+        char next_processed();
+        char next_unprocessed();
 
         // used for determining whether or not to preprocess the current character
         block_t m_block_status = UNBLOCKED;
@@ -92,21 +105,19 @@ public:
         int m_control_state = CLEAR;
     };
 
+    preprocessor();
+    preprocessor(std::shared_ptr<std::istream> stream);
+
     char next();
     void add_node(std::shared_ptr<node> n);
 
+    std::unordered_map<std::string, macro>& get_macros();
     void add_macro(std::string name, macro m);
-    void remove_macro(std::string name);
-    std::map<std::string, macro>::iterator find_macro(std::string name);
-
-    std::map<std::string, macro> get_macros();
 
 protected:
-
-    std::map<std::string, macro> m_macros;
     std::stack<std::shared_ptr<node>> m_nodes;
-
-    char next_unprocessed();
+    std::unordered_map<std::string, macro> m_macros;
 };
+
 
 #endif // PREPROCESSOR_H
