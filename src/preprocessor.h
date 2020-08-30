@@ -33,7 +33,7 @@ protected:
     virtual char next_processed() = 0;
     virtual char next_unprocessed();
 
-    std::string make_string(std::function<bool(char)> validator);
+    std::string make_string(std::function<bool(char)> validator, bool skip_leading_ws = true);
     std::shared_ptr<std::istream> m_stream;
 
     preprocessor* m_pp;

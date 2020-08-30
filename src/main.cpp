@@ -9,19 +9,17 @@
 
 int main(int argc, char** argv)
 {
-    auto ptr = std::make_unique<std::ifstream>("src/test.txt");
+    auto ptr = std::make_shared<std::ifstream>("src/test.txt");
     //preprocessor pp(static_cast<std::unique_ptr<std::istream>>(std::move(is)));
 
     preprocessor pp(std::move(ptr));
-    int i = 0;
 
     std::cout << A << std::endl;
     while (true)
     {
-        i++;
         char c = pp.next();
 
-        if (c == 0 || i > 100) break;
+        if (!c) break;
 
         std::cout << c;
     }

@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <algorithm>
 #include <unordered_map>
+#include <fstream>
 
 static std::unordered_map<std::string, std::function<bool(char)>> validators {
     {"identifier", [](char c) -> bool {
@@ -57,7 +58,7 @@ char node::next_raw()
     }
     else
     {
-        c = m_stream->get();
+        if (!m_stream->get(c)) return 0;
     }
 
     return c;
@@ -78,12 +79,30 @@ char node::next_unprocessed()
     return next_raw();
 }
 
-std::string node::make_string(std::function<bool(char)> validator)
+std::string node::make_string(std::function<bool(char)> validator, bool skip_leading_ws)
 {
     std::string s;
     
     char c = next_unprocessed();
-    for (; validator(c); c = next_unprocessed()) s += c;
+    bool is_leading = true;
+    for (;; c = next_unprocessed())
+    {
+        if (is_leading)
+        {
+            if (skip_leading_ws && isspace(c))
+            {
+                continue;
+            }
+            else
+            {
+                is_leading = false;
+            }
+        }
+
+        if (!validator(c)) break;
+
+        s += c;
+    }
 
     put_back(c);
 
@@ -91,7 +110,7 @@ std::string node::make_string(std::function<bool(char)> validator)
 }
 
 preprocessor::preprocessor()
-{}
+{  }
 
 preprocessor::preprocessor(std::shared_ptr<std::istream> stream)
 {
@@ -107,7 +126,7 @@ char preprocessor::next()
         auto n = m_nodes.top();
         char c = n->next();
 
-        if (c)
+        if (c != 0)
         {
             return c;
         }
@@ -132,7 +151,7 @@ void preprocessor::add_macro(std::string name, macro m) {
 preprocessor::proc_node::proc_node(std::shared_ptr<std::istream> stream, preprocessor* pp)
     : node::node(pp)
 {
-    m_stream = stream;
+    m_stream = std::move(stream);
 }
 
 char preprocessor::proc_node::next_unprocessed()
@@ -160,7 +179,6 @@ char preprocessor::proc_node::next_unprocessed()
                 }
                 else
                 {
-                    // fast_track(c_n);
                     m_block_status = UNBLOCKED;
                 }
             }
@@ -172,7 +190,6 @@ char preprocessor::proc_node::next_unprocessed()
             if (c_n == '/' || c_n == '*')
             {
                 m_block_status = c_n == '/' ? SL_COMMENT : ML_COMMENT;
-                //fast_track(c_n);
             }
             else
             {
@@ -199,6 +216,10 @@ char preprocessor::proc_node::next_processed()
     else if (c == '"')
     {
         m_block_status = (m_block_status == STRING) ? UNBLOCKED : STRING;
+        return c;
+    }
+    else if (m_block_status == STRING)
+    {
         return c;
     }
     else if (c == '#')
@@ -261,15 +282,30 @@ char preprocessor::proc_node::next_processed()
         }
         else if (instruction == "include")
         {
-            std::string s;
+            std::string s = make_string([](char c) -> bool {
+                static bool is_first = true;
+                static bool still_looking = true;
 
-            if (s[0] == '"' && s.back() == '"')
-            {
-                s.erase(s.begin());
-                s.erase(s.end());
-            }
+                if (is_first)
+                {
+                    is_first = false;
+                    return true;
+                }
+                else if (c == '"')
+                {
+                    still_looking = false;
+                    
+                    return true;
+                }
 
-            // add reader
+                return still_looking;
+            });
+
+            s = s.substr(1, s.size() - 2);
+
+            proc_node node(std::make_shared<std::ifstream>(s), m_pp);
+
+            m_pp->add_node(std::make_shared<proc_node>(node));
         }
         else if (instruction == "ifdef" || instruction == "ifndef")
         {
@@ -317,7 +353,7 @@ char preprocessor::proc_node::next_processed()
             m_pp->get_macros().erase(mac);
         }
 
-        return next_processed();
+        return ' ';
     }
     else if (c == '_' || isalpha(c))
     {
@@ -333,7 +369,7 @@ char preprocessor::proc_node::next_processed()
 
         if (mac != macros.end())
         {
-            std::vector<std::string > args;
+            std::vector<std::string> args;
 
             char c_n = next_unprocessed();
 
@@ -360,7 +396,7 @@ char preprocessor::proc_node::next_processed()
             for (auto c : identifier) fast_track(c);
         }
 
-        return next_processed();
+        return ' ';
     }
 
     return c;
@@ -395,5 +431,5 @@ macro::macro_node::macro_node(std::vector<std::string> args, const macro* parent
 
 char macro::macro_node::next_processed()
 {
-    return '1';
+    return next_unprocessed();
 }

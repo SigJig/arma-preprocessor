@@ -1,5 +1,7 @@
 #define test 1
 
+test
+
 // this is a singleline comment
 
 /*
@@ -13,6 +15,8 @@ this is a block comment /*
 
 
 #define c 2
+
 c
 
 
+#include "src/test2.txt"
