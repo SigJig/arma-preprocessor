@@ -7,8 +7,11 @@
 #include <unordered_map>
 #include <fstream>
 
-static std::unordered_map<std::string, std::function<bool(char)>> validators {
-    {"identifier", [](char c) -> bool {
+// returns a validator function, so that we can use static inside that without
+// affecting the function for later use
+static std::function<bool(char)> iden_validator()
+{
+    return [](char c) -> bool {
         static bool is_first = true;
 
         if (is_first)
@@ -18,8 +21,8 @@ static std::unordered_map<std::string, std::function<bool(char)>> validators {
         }
 
         return c == '_' || isalnum(c);
-    }}
-};
+    };
+}
 
 node::node(preprocessor* pp)
     : m_pp(pp)
@@ -145,6 +148,7 @@ void preprocessor::add_node(std::shared_ptr<node> n)
 std::unordered_map<std::string, macro>& preprocessor::get_macros() { return m_macros; }
 
 void preprocessor::add_macro(std::string name, macro m) {
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
     m_macros.emplace(name, m);
 }
 
@@ -224,14 +228,14 @@ char preprocessor::proc_node::next_processed()
     }
     else if (c == '#')
     {
-        std::string instruction = make_string(validators["identifier"]);
+        std::string instruction = make_string(iden_validator());
         std::transform(instruction.begin(), instruction.end(), instruction.begin(), ::tolower);
 
         auto macros = m_pp->get_macros();
 
         if (instruction == "define")
         {
-            std::string mac_name = make_string(validators["identifier"]);
+            std::string mac_name = make_string(iden_validator());
             std::vector<std::string> args;
 
             char c_n = next_unprocessed();
@@ -314,7 +318,7 @@ char preprocessor::proc_node::next_processed()
                 throw std::invalid_argument("Unexpected " + instruction + ", already inside control statement");
             }
 
-            std::string macro = make_string(validators["identifier"]);
+            std::string macro = make_string(iden_validator());
             std::transform(macro.begin(), macro.end(), macro.begin(), ::tolower);
 
             bool is_defined = macros.find(macro) != macros.end();
@@ -347,7 +351,7 @@ char preprocessor::proc_node::next_processed()
         }
         else if (instruction == "undef")
         {
-            std::string mac = make_string(validators["identifier"]);
+            std::string mac = make_string(iden_validator());
             std::transform(mac.begin(), mac.end(), mac.begin(), ::tolower);
 
             m_pp->get_macros().erase(mac);
@@ -357,7 +361,7 @@ char preprocessor::proc_node::next_processed()
     }
     else if (c == '_' || isalpha(c))
     {
-        std::string identifier = c + make_string(validators["identifier"]);
+        std::string identifier = c + make_string(iden_validator(), false);
 
         // Keep a seperate variable for the lowered identifer, so that if
         // it is not a macro we can put back the original characters.
@@ -405,9 +409,7 @@ char preprocessor::proc_node::next_processed()
 
 macro::macro(std::string name, std::vector<std::string> args, std::string content)
     : m_name(name), m_args(args), m_content(content)
-{
-    
-}
+{  }
 
 std::shared_ptr<macro::macro_node> macro::make_node(std::vector<std::string> args, preprocessor* pp) const
 {
